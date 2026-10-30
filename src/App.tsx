@@ -388,7 +388,7 @@ export default function App() {
       !window.confirm(
         `This export is about ${formatBytes(estimate.bytes)}.\n\n` +
           "Files above ~512 MB cannot be reopened by excalidraw.com or by any " +
-          "other browser-based editor — that is a hard limit on JavaScript " +
+          "other browser-based editor. That is a hard limit on JavaScript " +
           "string length, not a bug.\n\nBlueprinceDraw can still reopen it. Export anyway?",
       )
     ) {
@@ -490,7 +490,7 @@ export default function App() {
         ref={fileInputRef}
         type="file"
         // .txt included so clipboard dumps ("type":"excalidraw/clipboard") can
-        // be picked too — the reader walks keys and does not care about the type
+        // be picked too; the reader walks keys and does not care about the type
         accept=".excalidraw,.json,.txt,application/json,text/plain"
         onChange={onPickFile}
         style={{ display: "none" }}
@@ -592,7 +592,7 @@ export default function App() {
           note={
             importDone
               ? undefined
-              : "Streaming the file in chunks — it is never loaded into memory whole."
+              : "The file is streamed in chunks and never loaded into memory whole."
           }
           onDismiss={importDone ? () => setImportProgress(null) : undefined}
         />

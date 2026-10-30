@@ -1,4 +1,4 @@
-# hosh.it box contract — what an app must look like to deploy first try
+# hosh.it box contract: what an app must look like to deploy first try
 
 Snapshot of the owner's box standard (source of truth: private `hosh-migration/11-BOX-STANDARD.md`).
 Public-safe: no secrets, no internal security details. If this copy and the template disagree,

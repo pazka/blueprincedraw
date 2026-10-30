@@ -1,10 +1,10 @@
 # BlueprinceDraw
 
-**https://excalidraw.hosh.it** — an Excalidraw workspace built for scenes that
-keep growing: the ones the normal `.excalidraw` file format eventually refuses
-to open.
+**https://excalidraw.hosh.it** is an Excalidraw workspace built for scenes
+that keep growing, the ones the normal `.excalidraw` file format eventually
+refuses to open.
 
-**Your board never leaves your machine.** There is no account and no login:
+Your board never leaves your machine: there is no account and no login, and
 the site only serves the editor. Boards are saved in your browser (or in a
 folder you pick), and you move them around with **Export** / **Import**.
 
@@ -18,7 +18,7 @@ large.
 
 A `.excalidraw` file is one JSON document with every image base64-encoded
 inside it. To open one, a browser has to turn the whole file into a single
-JavaScript string. V8 — the engine in Chrome, Edge and Node — caps strings at
+JavaScript string. V8 (the engine in Chrome, Edge and Node) caps strings at
 
 ```
 536,870,888 characters
@@ -32,7 +32,7 @@ parsing happens, and Excalidraw reports that as:
 Error: invalid file
 ```
 
-The file was never malformed. It was simply too big to exist as one string.
+The file was never malformed; it was simply too big to exist as one string.
 No amount of RAM, no incognito window and no patched version of Excalidraw can
 change that, because the limit is in the engine itself.
 
@@ -41,9 +41,9 @@ BlueprinceDraw sidesteps it in two ways:
 1. **Nothing is ever parsed as one giant string.** Imports are streamed in
    8 MB chunks; the `files` map is walked one image at a time.
 2. **Nothing is ever stored as one giant file.** A project is a small
-   `scene.json` plus one binary file per image. Base64 never touches the disk.
+   `scene.json` plus one binary file per image, and base64 never touches the disk.
 
-The result: `scene.json` for this project is under 1 MB and will stay that way
+As a result, `scene.json` for this project is under 1 MB and will stay that way
 no matter how many screenshots get added.
 
 ---
@@ -53,11 +53,12 @@ no matter how many screenshots get added.
 **Online:** open https://excalidraw.hosh.it. To bring a board over, use
 **Menu → Import .excalidraw (any size)…**; to take it elsewhere, **Export**.
 A board saved on one site or browser is not visible on another (browser
-storage belongs to one address): export there, import here.
+storage belongs to one address), so export from the old place and import
+into the new one.
 
 **Locally:** double-click **`BlueprinceDraw.cmd`**. It installs and builds on
 first run, then serves the app on http://localhost:4270 (this machine only)
-and opens it. Nothing else to remember.
+and opens it.
 
 From a terminal:
 
@@ -72,7 +73,7 @@ npm test        # server + image-streaming tests
 Everything is served by the app itself, fonts and locales included: no CDN,
 no analytics, no request to any other site (the Content-Security-Policy
 forbids it). The server is a ~200-line Node standard-library file server
-that answers `GET` only — see `DEPLOY.md` for how it runs on the box.
+that answers `GET` only; `DEPLOY.md` explains how it runs on the box.
 
 ---
 
@@ -80,7 +81,7 @@ that answers `GET` only — see `DEPLOY.md` for how it runs on the box.
 
 ### Folder mode (recommended)
 
-**Menu → Use a project folder…** and pick a directory. Chrome and Edge only —
+**Menu → Use a project folder…** and pick a directory. Chrome and Edge only, as
 it uses the File System Access API.
 
 ```
@@ -97,23 +98,24 @@ MyProject/
 
 Why this is safer than a single file:
 
-- **Normal files on your disk.** Any backup tool, sync client or file manager
-  can see them. Nothing is trapped in browser storage.
-- **Atomic saves.** Writes go through a swap file and only replace the target
+- **Normal files on your disk**, which any backup tool, sync client or file
+  manager can see, so nothing is trapped in browser storage.
+- **Atomic saves:** writes go through a swap file and only replace the target
   on commit, so a crash mid-save cannot truncate the previous version.
-- **Automatic snapshots.** `scene.json` is copied into `backups/` before every
+- **Automatic snapshots:** `scene.json` is copied into `backups/` before every
   manual save and at most every 5 minutes during autosave; the last 20 are
   kept. Since images live outside `scene.json`, each snapshot costs kilobytes.
-- **Damage stays local.** A corrupted image file loses that one image, not the
+- **Damage stays local:** a corrupted image file loses that one image, not the
   project.
 
 ### Browser mode (default)
 
 With no folder chosen, everything lives in IndexedDB for this origin, and the
-app asks the browser for persistent storage so it is not evicted. Good for
-scratch work; switch to a folder for anything you care about.
+app asks the browser for persistent storage so it is not evicted. It is fine
+for scratch work, but switch to a folder (or export regularly) for anything you
+care about.
 
-You can move between the two at any time — picking an empty folder copies the
+You can move between the two at any time: picking an empty folder copies the
 open project into it.
 
 ---
@@ -128,7 +130,7 @@ indistinguishable.
 Turn it off with **Menu → Compress images to WebP** if you want originals kept
 byte-for-byte. The re-encode is skipped automatically for SVG, GIF, AVIF and
 anything already WebP, and is discarded whenever it would produce a *larger*
-file — so it can never make a project worse.
+file, so it can never make a project worse.
 
 **Menu → Remove unused images** deletes binaries no element points at any more.
 
@@ -143,7 +145,7 @@ stays responsive. The 554 MB original imports in about a minute.
 **Menu → Export .excalidraw…** writes a standard single-file scene for sharing
 or for excalidraw.com. The export is assembled as a stream of blob parts rather
 than one concatenated string, and you get a warning before producing anything
-over ~512 MB — such a file would be unreadable by excalidraw.com, though
+over ~512 MB, because such a file would be unreadable by excalidraw.com, though
 BlueprinceDraw itself can still reopen it.
 
 ---
@@ -161,7 +163,7 @@ A dot that is green means saved, amber means edits pending, blue pulsing means
 a write is in flight, red means the last save failed. Closing the tab with
 unsaved work prompts first.
 
-Pure view changes — panning, zooming, selecting — do not mark the project
+Pure view changes (panning, zooming, selecting) do not mark the project
 dirty, so idle time never rewrites the file.
 
 ---
@@ -216,8 +218,8 @@ await window.__bpd.selfTest()
 ```
 
 A picked folder and the origin private file system expose the same
-`FileSystemDirectoryHandle` API, so this covers every folder code path — atomic
-writes, the binary files directory, backup rotation, stats — without needing
+`FileSystemDirectoryHandle` API, so this covers every folder code path (atomic
+writes, the binary files directory, backup rotation, stats) without needing
 the native picker. It reports `pass: true` when all of them hold.
 
 `window.__bpd` also exposes `api` (the live Excalidraw API), `boot` and
@@ -227,8 +229,8 @@ the native picker. It reports `pass: true` when all of them hold.
 
 ## Verified
 
-- The 554 MB `RESTORED_BLUEPRINCE.excalidraw` — the file excalidraw.com refuses
-  with "Error: invalid file" — imports fully: 1289 elements, 485 images,
+- The 554 MB `RESTORED_BLUEPRINCE.excalidraw`, the file excalidraw.com refuses
+  with "Error: invalid file", imports fully: 1289 elements, 485 images,
   395.7 MB of PNG down to 36.4 MB of WebP (−91%).
 - Reopening after a reload restores all 1,290 elements and 486 images (2026-10-30 export).
 - Export produces a valid 51.9 MB `.excalidraw` that parses cleanly with every

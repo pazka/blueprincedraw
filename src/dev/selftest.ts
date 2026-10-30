@@ -3,7 +3,7 @@
  *
  * A picked directory and the origin private file system expose the very same
  * `FileSystemDirectoryHandle` API, so running against OPFS covers every folder
- * code path — atomic writes, the binary files directory, the backup rotation —
+ * code path (atomic writes, the binary files directory, the backup rotation)
  * without needing the native folder picker.
  *
  * Run from the console: `await window.__bpd.selfTest()`
@@ -33,7 +33,7 @@ export async function folderSelfTest(): Promise<Record<string, unknown>> {
   await store.writeScene(scene(3));
   results.sceneRoundTrip = (await store.readScene())?.elements.length === 3;
 
-  // binary round trip — bytes must come back identical, no base64 anywhere
+  // binary round trip: bytes must come back identical, no base64 anywhere
   const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 255, 128]);
   await store.writeFile("abc123", "webp", bytes, "image/webp");
   const back = await store.readFile("abc123", { ext: "webp", mimeType: "image/webp" });

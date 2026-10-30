@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# blueprincedraw — static Excalidraw front-end served by a ~200-line Node stdlib server.
+# blueprincedraw: static Excalidraw front-end served by a ~200-line Node stdlib server.
 # Box contract rules 1–4, 12: distroless, uid 10001, read-only, no state, base images pinned by digest.
 
 FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS build
@@ -30,6 +30,6 @@ USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["/nodejs/bin/node", "/app/server/healthcheck.js"]
-# Node permission model: the server may read /app and nothing else — no writes, no child
-# processes, no workers, no native addons (the distroless entrypoint is /nodejs/bin/node).
+# Node permission model: the server may read /app and nothing else (no writes, no child
+# processes, no workers, no native addons). The distroless entrypoint is /nodejs/bin/node.
 CMD ["--permission", "--allow-fs-read=/app/", "/app/server/main.js"]

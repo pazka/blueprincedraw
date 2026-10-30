@@ -33,4 +33,4 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
     ports:
-      - "${APP_BIND:-127.0.0.1:9132}:8000"   # loopback only — never 0.0.0.0
+      - "${APP_BIND:-127.0.0.1:9132}:8000"   # loopback only, never 0.0.0.0

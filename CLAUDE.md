@@ -1,4 +1,4 @@
-# CLAUDE.md — pazka/blueprincedraw
+# CLAUDE.md for pazka/blueprincedraw
 
 Excalidraw for humongous boards (the owner's Blue Prince board: ~1,300 elements, ~490 screenshots).
 Live at **https://excalidraw.hosh.it** on the owner's hosh.it box. **`docs/BOX-CONTRACT.md` is binding.**
@@ -11,7 +11,7 @@ Live at **https://excalidraw.hosh.it** on the owner's hosh.it box. **`docs/BOX-C
 | Data | none on the server (no volume) |
 | Env file on the box | `/srv/blueprincedraw/blueprincedraw.env` (no secret) |
 
-## Product rules (owner decisions — do not undo)
+## Product rules (owner decisions, do not undo)
 - **Nothing is stored server-side and there is no login.** Boards live in the visitor's browser
   (IndexedDB) or a local folder (File System Access API); moving them = Export / Import. Do not add
   an API, accounts, uploads or sync without the owner asking for it explicitly.
@@ -19,11 +19,11 @@ Live at **https://excalidraw.hosh.it** on the owner's hosh.it box. **`docs/BOX-C
 - Never a CDN, analytics or third-party request: the CSP in `server/app.js` forbids them.
 
 ## Layout
-- `src/` — the editor (React + `@excalidraw/excalidraw`), storage back ends (`lib/store.ts`), streamed
+- `src/`: the editor (React + `@excalidraw/excalidraw`), storage back ends (`lib/store.ts`), streamed
   importer (`lib/jsonStream.ts`, `worker/`), progressive image loading (`lib/project.ts`).
-- `server/` — `main.js` (entry), `app.js` (headers, routes), `static.js` (prebuilt file map),
+- `server/`: `main.js` (entry), `app.js` (headers, routes), `static.js` (prebuilt file map),
   `smoke.js` (POST_DEPLOY capability checks), `healthcheck.js`.
-- `test/` — `npm test` (node:test; `.ts` runs through Node's type stripping, so no parameter
+- `test/`: `npm test` (node:test; `.ts` runs through Node's type stripping, so no parameter
   properties / enums in files the tests import).
 
 ## Rules

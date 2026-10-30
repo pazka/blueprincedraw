@@ -48,8 +48,8 @@ export function imageLoadOrder(
 
 /**
  * Loads images in parallel and hands them over in batches (for
- * `excalidrawAPI.addFiles`). Each image becomes its own data URL — many small
- * strings, never one big one — so this stays safe however large the project.
+ * `excalidrawAPI.addFiles`). Each image becomes its own data URL (many small
+ * strings, never one big one), so this stays safe however large the project.
  */
 export async function streamImages(
   store: Store,

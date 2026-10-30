@@ -9,7 +9,7 @@ declare global {
 
 // Must be an absolute URL: Excalidraw 0.18 resolves font URLs with
 // `new URL(path, EXCALIDRAW_ASSET_PATH)`, and a bare "/" silently falls back
-// to its CDN (esm.sh) — which the CSP blocks, by design.
+// to its CDN (esm.sh), which the CSP blocks by design.
 window.EXCALIDRAW_ASSET_PATH = `${window.location.origin}/`;
 
 export {};

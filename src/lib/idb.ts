@@ -40,7 +40,7 @@ function tx<T>(
         req.onerror = () => reject(req.error);
         // Resolve on transaction completion, not on request success. A request
         // succeeds before its transaction commits, so resolving early would let
-        // a caller act — or a worker be terminated — while the write is still
+        // a caller act (or a worker be terminated) while the write is still
         // uncommitted, silently losing it.
         t.oncomplete = () => resolve(result);
         t.onabort = () => reject(t.error ?? new Error("IndexedDB transaction aborted"));

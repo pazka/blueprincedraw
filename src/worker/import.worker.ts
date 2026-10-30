@@ -4,7 +4,7 @@
  *
  * Runs off the main thread so the editor stays responsive, streams the file so
  * it is never held in memory as one string, and writes each image straight to
- * the project store as binary — optionally re-encoded to WebP on the way in.
+ * the project store as binary, optionally re-encoded to WebP on the way in.
  */
 
 import { streamExcalidrawScene } from "../lib/jsonStream.ts";
