@@ -27,8 +27,10 @@ const TYPES = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-// content-hashed file names (vite: index-B2x9_aQ1.js, excalidraw fonts: Xiaolai-Regular-3e1f…woff2)
-const HASHED = /[-.][A-Za-z0-9_]{8,}\.[a-z0-9]+$/;
+// Content-hashed file names. Everything vite writes to /assets/ is hashed (and its base64url
+// hash may itself contain "-", e.g. index-Ab-dE9_x.js); Excalidraw's fonts and locales carry a
+// hash too (Xiaolai-Regular-3e1f…woff2, fr-FR-ABCD1234.js).
+const HASHED = /^\/assets\/|-[A-Za-z0-9]{8,}\.[a-z0-9]+$/;
 
 export async function loadStatic(root) {
   const files = new Map();

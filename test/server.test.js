@@ -24,6 +24,7 @@ before(async () => {
   await writeFile(join(dir, "assets", "index-AbC123xY.js"), BUNDLE);
   await writeFile(join(dir, "assets", "index-AbC123xY.js.br"), brotliCompressSync(BUNDLE));
   await writeFile(join(dir, "fonts", "Liberation", "LiberationSans-Regular.woff2"), "woff2");
+  await writeFile(join(dir, "assets", "index-Ab-dE9_x.js"), "x"); // base64url hash with a dash
   await writeFile(join(dir, ".env"), "SECRET=1");
   await writeFile(join(dir, "notes.unknownext"), "x");
 
@@ -78,6 +79,14 @@ test("hashed bundle: immutable, brotli when accepted, identity otherwise", async
   assert.equal(plain.headers.get("content-encoding"), null);
   assert.equal(await plain.text(), BUNDLE);
   assert.notEqual(plain.headers.get("etag"), br.headers.get("etag"));
+});
+
+test("every vite asset is immutable, even when its hash contains a dash; unhashed fonts are not", async () => {
+  const dashed = await get("/assets/index-Ab-dE9_x.js");
+  assert.match(dashed.headers.get("cache-control"), /immutable/);
+  const font = await get("/fonts/Liberation/LiberationSans-Regular.woff2");
+  assert.doesNotMatch(font.headers.get("cache-control"), /immutable/);
+  assert.equal((await get("/index.html")).headers.get("cache-control"), "no-cache");
 });
 
 test("conditional GET answers 304", async () => {
