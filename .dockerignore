@@ -1,0 +1,12 @@
+node_modules
+dist
+public
+.git
+.github
+.testdata
+*.log
+.env
+.env.*
+*.excalidraw
+docs
+BlueprinceDraw.cmd

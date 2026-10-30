@@ -1,0 +1,106 @@
+name: ci
+
+# push to main / PR → tests → build → Trivy CRITICAL gate → hardened container smoke → (main only)
+# push ghcr.io/pazka/blueprincedraw:ci and :<sha>. Box standard (hosh-migration 11-BOX-STANDARD.md).
+on:
+  push:
+    branches: [main, 'agent/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/pazka/blueprincedraw
+  # Trivy from its image pinned by digest (no third-party action holding a token).
+  TRIVY_IMAGE: mirror.gcr.io/aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+
+jobs:
+  test:   # typecheck + build + unit tests (static server, image streaming)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - run: npm ci --no-audit   # frozen lockfile, no install scripts, ≥ 7-day release age (.npmrc)
+      - run: npm run build
+      - run: npm test
+      - name: No critical advisory in what ships to the browser
+        run: npm audit --omit=dev --audit-level=critical
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build (local, for scanning)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: blueprincedraw:scan
+          build-args: |
+            VERSION=ci
+            REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy gate (CRITICAL, fixable)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \
+            --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+            --db-repository mirror.gcr.io/aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db \
+            blueprincedraw:scan
+
+      - name: Container smoke (same hardening as the box) + capability checks
+        run: |
+          set -euo pipefail
+          # no --user: the image itself must run as 10001 (a Dockerfile regression must show)
+          test "$(docker image inspect --format '{{.Config.User}}' blueprincedraw:scan)" = "10001:10001"
+          docker run -d --name smoke --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges:true --pids-limit 128 --memory 256m \
+            -p 127.0.0.1:8000:8000 blueprincedraw:scan
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' smoke)" = healthy ] && break; sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' smoke)" = healthy
+          # the exact argv hosh-deploy runs after every deploy (POST_DEPLOY)
+          docker exec smoke /nodejs/bin/node /app/server/smoke.js http://127.0.0.1:8000
+          curl -fsS http://127.0.0.1:8000/healthz
+          docker logs smoke | tail -n 5
+          docker rm -f smoke
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push :ci and :<sha>
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:ci
+            ${{ env.IMAGE }}:${{ github.sha }}
+          build-args: |
+            VERSION=ci
+            REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha

@@ -1,0 +1,36 @@
+# blueprincedraw on the hosh.it box (no secrets here). On the box it becomes
+# /srv/blueprincedraw/docker-compose.yml, validated and pinned by `hosh-deploy register`.
+# Box standard (hosh-migration 11-BOX-STANDARD.md): published on a LOOPBACK port only; the edge
+# Traefik (host network, file provider) routes excalidraw.hosh.it to it (route rendered by
+# hosh-deploy from deploy/traefik-route.yml.tmpl).
+# No volume: the server is stateless. Boards are kept in each visitor's browser (IndexedDB) or in a
+# local folder they pick; nothing is ever uploaded.
+name: blueprincedraw
+services:
+  blueprincedraw:
+    image: ${APP_IMAGE:-ghcr.io/pazka/blueprincedraw:latest}
+    container_name: blueprincedraw
+    restart: unless-stopped
+    env_file: ./blueprincedraw.env          # chmod 600
+    # --- hardening (box standard) ---
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "10001:10001"
+    pids_limit: 128
+    mem_limit: 256m                       # static files only; 512m (box default) is not needed
+    healthcheck:
+      # the image has no shell: node itself checks GET /healthz (200 + "status":"ok")
+      test: ["CMD", "/nodejs/bin/node", "/app/server/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    ports:
+      - "${APP_BIND:-127.0.0.1:9132}:8000"   # loopback only — never 0.0.0.0
