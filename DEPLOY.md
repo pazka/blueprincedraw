@@ -4,7 +4,7 @@ Deployment on the hosh.it box (box standard: `docs/BOX-CONTRACT.md`). Releases d
 through **hosh-deploy** (§1); a first install is a one-time on-box step (§1b). `.env.example`
 defaults already fit the box, and there is **no secret at all**: the app has no login and stores
 nothing on the server. Boards live only in each visitor's browser (IndexedDB) or in a local folder
-they pick; moving a board between machines = Export / Import of a `.excalidraw` file.
+they pick, and the user's save is a single `.excalidraw` file on their own disk (Open / Save).
 
 ## 1. How releases go live (hosh-deploy is the only deploy path on the box)
 
@@ -24,18 +24,18 @@ check fails (the workflow then goes red). Nothing from the repo runs on the host
 
 Box rules: `ACTIONS-LOG.md` intent BEFORE, result + revert AFTER; `/home/pazka/MIGRATION/scripts/smoke.sh`
 BEFORE and AFTER. Prerequisites: DNS `excalidraw.hosh.it` A → 54.37.70.57 (`scripts/dns-add.sh excalidraw`),
-port 9132 in the registry of `11-BOX-STANDARD.md`, release `v1.0.1` built (image on GHCR).
+port 9132 in the registry of `11-BOX-STANDARD.md`, release `v1.1.0` built (image on GHCR).
 
 ```sh
 # A: release checkout (provides docker-compose.example.yml, .env.example, deploy/*)
 sudo mkdir -p /srv/blueprincedraw && sudo chmod 750 /srv/blueprincedraw
-sudo bash -c 'cd /srv/blueprincedraw && { [ -d .git ] || { git init -q && git remote add origin https://github.com/pazka/blueprincedraw; }; } && git fetch -q --depth 1 origin tag v1.0.1 && git checkout -q v1.0.1'
+sudo bash -c 'cd /srv/blueprincedraw && { [ -d .git ] || { git init -q && git remote add origin https://github.com/pazka/blueprincedraw; }; } && git fetch -q --depth 1 origin tag v1.1.0 && git checkout -q v1.1.0'
 # B: env file from the template (no secret exists for this app)
 sudo bash -c 'cd /srv/blueprincedraw && { [ -e blueprincedraw.env ] || install -m 600 .env.example blueprincedraw.env; }'
 # C: (none: no owner secret)
 # D: pin the box config (validates the compose hardening), first deploy (writes the Traefik route)
 sudo hosh-deploy register blueprincedraw
-sudo hosh-deploy deploy blueprincedraw v1.0.1
+sudo hosh-deploy deploy blueprincedraw v1.1.0
 # E: GitHub key for auto-deploys (keygen; root binds the public half; gh stores the private half; shred)
 ssh-keygen -q -t ed25519 -N '' -C hosh-deploy:blueprincedraw -f /tmp/blueprincedraw-deploy
 sudo bash /home/pazka/MIGRATION/scripts/setup-hosh-deploy.sh key blueprincedraw /tmp/blueprincedraw-deploy.pub
@@ -54,7 +54,7 @@ No volume to keep: the app has no server-side data.
 ## 2. Variables (`blueprincedraw.env`, mode 600)
 | Variable | Default | Set by | Meaning |
 |---|---|---|---|
-| `APP_IMAGE` | `ghcr.io/pazka/blueprincedraw:v1.0.1` | hosh-deploy | Release tag running (the only line hosh-deploy rewrites). |
+| `APP_IMAGE` | `ghcr.io/pazka/blueprincedraw:v1.1.0` | hosh-deploy | Release tag running (the only line hosh-deploy rewrites). |
 | `APP_BIND` | `127.0.0.1:9132` | template | Loopback port published for Traefik. |
 | `APP_LOG_LEVEL` | `info` | template | `debug`, `info`, `warn`, `error`. |
 | `APP_PORT` | `8000` (unset) | n/a | Listening port inside the container; leave unset. |
@@ -72,7 +72,7 @@ All run by **`/nodejs/bin/node /app/server/smoke.js http://127.0.0.1:8000`** ins
 | Fonts/locales | served by the app itself: `/fonts/Liberation/LiberationSans-Regular.woff2` → 200 `font/woff2`; `/fonts/` → 404 (no listing) |
 | Dotfiles/sources | `/.env`, `/.git/config`, `/server/main.js`, `/package.json` → 404 |
 | Read-only | `POST`/`PUT`/`DELETE /` → 405 (the server accepts no data) |
-| Browser (manual) | open https://excalidraw.hosh.it, Menu → Import a `.excalidraw`, reload: the board comes back from browser storage; DevTools console shows no CSP error and no request leaves the origin |
+| Browser (manual) | open https://excalidraw.hosh.it, Menu → Open a `.excalidraw`, edit, Ctrl+S, reload: the board and the file are both up to date; DevTools console shows no CSP error and no request leaves the origin |
 
 ## 4. What runs
 | Item | Value |
@@ -104,6 +104,7 @@ All run by **`/nodejs/bin/node /app/server/smoke.js http://127.0.0.1:8000`** ins
   which Excalidraw never passes) and `katex` (low; only in the Mermaid-to-Excalidraw dialog), as no fix
   exists without downgrading Excalidraw.
 - **Where boards live:** per browser and per site. A board saved at `http://localhost:4270` (local
-  launcher) is not visible at `https://excalidraw.hosh.it` and vice versa: Export there, Import here.
+  launcher) is not visible at `https://excalidraw.hosh.it` and vice versa; the `.excalidraw` file
+  is what moves between them (Save there, Open here).
   Browser storage can be cleared by the user or the browser; the app requests persistent storage,
   and a project folder (Chrome/Edge) or regular exports are the durable copies.

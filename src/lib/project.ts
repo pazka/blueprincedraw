@@ -2,6 +2,7 @@
 
 import { bytesToDataUrl, dataUrlMime, dataUrlToBytes, toWebp } from "./images.ts";
 import { extForMime, type Store } from "./store.ts";
+import { referencedFileIds, type SceneSource } from "./sceneFile.ts";
 import type { FileIndex, ImportOptions, SceneDoc } from "../types.ts";
 
 export type EditorScene = {
@@ -256,70 +257,70 @@ export async function pruneOrphans(store: Store, elements: any[]): Promise<numbe
   return orphans.length;
 }
 
-/** V8 caps strings at this many characters; a classic export has to stay under
- *  it or no browser will ever be able to read the result back. */
+/** V8 caps strings at this many characters. A single-file save larger than
+ *  that cannot be opened by excalidraw.com (or any editor that reads the file
+ *  as one string); BlueprinceDraw streams it, so it still opens here. */
 export const MAX_STRING_LENGTH = 536_870_888;
 
-export type ExportEstimate = {
-  bytes: number;
-  safe: boolean;
-};
-
-export function estimateClassicExport(index: FileIndex, elementsBytes: number): ExportEstimate {
-  // base64 inflates by 4/3, plus JSON quoting overhead per entry
-  const payload = Object.values(index).reduce(
-    (sum, entry) => sum + Math.ceil((entry.bytes * 4) / 3) + 220,
-    0,
-  );
-  const bytes = payload + elementsBytes + 512;
-  return { bytes, safe: bytes < MAX_STRING_LENGTH * 0.95 };
+/**
+ * What a single-file save writes: the editor's current elements and settings,
+ * and every image those elements use. Images come from the editor when it
+ * already holds them (no conversion at all), otherwise from the store, one at
+ * a time, so saving never needs the whole board in memory twice.
+ */
+export function boardSource(
+  store: Store,
+  index: FileIndex,
+  elements: readonly any[],
+  appState: Record<string, any>,
+  editorFiles: Record<string, any>,
+): SceneSource {
+  return {
+    elements,
+    appState: pickAppState(appState),
+    fileIds: referencedFileIds(elements),
+    async getImage(id) {
+      const live = editorFiles[id];
+      const entry = index[id];
+      if (live?.dataURL?.startsWith("data:")) {
+        return {
+          id,
+          mimeType: live.mimeType,
+          dataURL: live.dataURL,
+          created: live.created ?? entry?.created,
+          lastRetrieved: live.lastRetrieved ?? entry?.lastRetrieved,
+        };
+      }
+      if (!entry) return null;
+      const stored = await store.readFile(id, entry);
+      if (!stored) return null;
+      return {
+        id,
+        mimeType: stored.mimeType,
+        dataURL: await bytesToDataUrl(stored.bytes, stored.mimeType),
+        created: entry.created,
+        lastRetrieved: entry.lastRetrieved,
+      };
+    },
+  };
 }
 
 /**
- * Writes a standard `.excalidraw` file for interoperability. Assembled as a
- * stream of Blob parts rather than one concatenated string, so building it
- * never trips the string limit even when the result is large.
+ * Puts back into the index every image binary the store holds but the index
+ * forgot. Before v1.1 an import replaced the index with the imported file's
+ * images only, which left earlier images stored but unreachable; this makes
+ * them visible again (and "Remove unused images" can then clean them up).
  */
-export async function buildClassicExport(
-  store: Store,
-  elements: any[],
-  appState: Record<string, any>,
-  index: FileIndex,
-  onProgress?: (done: number, total: number) => void,
-): Promise<Blob> {
-  const parts: BlobPart[] = [];
-  parts.push(
-    '{\n  "type": "excalidraw",\n  "version": 2,\n  "source": "blueprincedraw",\n  "elements": ',
-  );
-  parts.push(JSON.stringify(elements));
-  parts.push(',\n  "appState": ');
-  parts.push(JSON.stringify(pickAppState(appState)));
-  parts.push(',\n  "files": {');
-
-  const ids = Object.keys(index);
-  let first = true;
-  let done = 0;
-  for (const id of ids) {
-    const entry = index[id];
-    const stored = await store.readFile(id, entry);
-    if (stored) {
-      const dataURL = await bytesToDataUrl(stored.bytes, stored.mimeType);
-      parts.push(
-        `${first ? "\n    " : ",\n    "}${JSON.stringify(id)}: ${JSON.stringify({
-          id,
-          mimeType: stored.mimeType,
-          dataURL,
-          created: entry.created,
-          lastRetrieved: entry.lastRetrieved,
-        })}`,
-      );
-      first = false;
-    }
-    onProgress?.(++done, ids.length);
+export async function recoverIndex(store: Store, index: FileIndex): Promise<{ index: FileIndex; recovered: number }> {
+  const lost = await store.listStoredFiles(new Set(Object.keys(index)));
+  if (lost.length === 0) return { index, recovered: 0 };
+  const now = Date.now();
+  const next: FileIndex = { ...index };
+  for (const f of lost) {
+    next[f.id] = { id: f.id, mimeType: f.mimeType, ext: f.ext, bytes: f.bytes, created: now, lastRetrieved: now };
   }
-
-  parts.push("\n  }\n}\n");
-  return new Blob(parts, { type: "application/json" });
+  await store.writeIndex(next);
+  return { index: next, recovered: lost.length };
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {

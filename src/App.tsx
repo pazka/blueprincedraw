@@ -5,18 +5,20 @@ import "@excalidraw/excalidraw/index.css";
 import { BrowserStore, FolderStore, refForStore, type Store } from "./lib/store.ts";
 import { KV_STORE, idbGet, idbPut, requestPersistence } from "./lib/idb.ts";
 import {
-  buildClassicExport,
+  MAX_STRING_LENGTH,
+  boardSource,
   copyProject,
   downloadBlob,
-  estimateClassicExport,
   imageLoadOrder,
   loadProject,
   pruneOrphans,
+  recoverIndex,
   saveProject,
   streamImages,
   syncNewFiles,
   type EditorScene,
 } from "./lib/project.ts";
+import { buildSceneBlob, writeToFileHandle } from "./lib/sceneFile.ts";
 import { DEFAULT_MAX_DIMENSION, DEFAULT_QUALITY, formatBytes } from "./lib/images.ts";
 import { BusyOverlay, ProgressOverlay } from "./ui/Overlay.tsx";
 import type { FileIndex, ImportOptions, ImportProgress } from "./types.ts";
@@ -25,6 +27,19 @@ const AUTOSAVE_MS = 1500;
 const BACKUP_EVERY_MS = 5 * 60 * 1000;
 const HANDLE_KEY = "projectDirHandle";
 const OPTIONS_KEY = "imageOptions";
+/** the .excalidraw file the board is saved to (a FileSystemFileHandle, Chrome/Edge) */
+const FILE_KEY = "sceneFileHandle";
+/** { version, lastModified } of that file when this browser last wrote or read it */
+const FILE_META_KEY = "sceneFileMeta";
+/** a linked file is rewritten this long after the first unsaved change */
+const FILE_AUTOSAVE_MS = 20_000;
+const FILE_TYPES = [
+  { description: "Excalidraw scene", accept: { "application/json": [".excalidraw", ".json"] } },
+];
+const canPickFiles = typeof window !== "undefined" && "showSaveFilePicker" in window && "showOpenFilePicker" in window;
+
+type FileMeta = { version: number; lastModified: number };
+type FileState = "none" | "clean" | "dirty" | "writing" | "error";
 
 const DEFAULT_OPTIONS: ImportOptions = {
   transcode: true,
@@ -66,6 +81,11 @@ export default function App() {
   const [options, setOptions] = useState<ImportOptions>(DEFAULT_OPTIONS);
   const [needsReconnect, setNeedsReconnect] = useState(false);
   const [api, setApi] = useState<any>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [fileAccess, setFileAccess] = useState<"granted" | "prompt">("granted");
+  const [fileState, setFileState] = useState<FileState>("none");
+  const [fileSavedAt, setFileSavedAt] = useState<number | null>(null);
+  const [fileProgress, setFileProgress] = useState<{ done: number; total: number } | null>(null);
 
   const apiRef = useRef<any>(null);
   const indexRef = useRef<FileIndex>({});
@@ -76,6 +96,12 @@ export default function App() {
   const savedVersionRef = useRef<number | null>(null);
   const epochRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
+  const fileMetaRef = useRef<FileMeta | null>(null);
+  const fileTimerRef = useRef<number | null>(null);
+  const fileWritingRef = useRef(false);
+  const pendingHandleRef = useRef<FileSystemFileHandle | null>(null);
+  const conflictWarnedRef = useRef(false);
 
   const say = useCallback((message: string) => {
     setToast(message);
@@ -92,6 +118,9 @@ export default function App() {
       try {
         // scene + index only: images stream in once the editor is up
         const scene = await loadProject(store);
+        // images an older version stored but dropped from the index come back
+        const { index, recovered } = await recoverIndex(store, scene.index);
+        scene.index = index;
         indexRef.current = scene.index;
         savedVersionRef.current = getSceneVersion(scene.elements);
         epochRef.current += 1;
@@ -100,9 +129,12 @@ export default function App() {
         setBoot({ store, scene, epoch: epochRef.current });
         setSaveState(scene.savedAt ? "saved" : "idle");
         await refreshStats(store);
-        if (note) say(note);
+        if (recovered) say(`Recovered ${recovered} stored image${recovered === 1 ? "" : "s"} the index had lost`);
+        else if (note) say(note);
+        return scene;
       } catch (err) {
         setBootError(errorText(err));
+        return null;
       } finally {
         setBusy(null);
       }
@@ -125,7 +157,18 @@ export default function App() {
         setNeedsReconnect(true);
       }
     }
-    await openProject(store);
+    const scene = await openProject(store);
+
+    // the file this board is saved to, if any (permission must be re-granted after a restart)
+    const fileHandle = await idbGet<FileSystemFileHandle>(KV_STORE, FILE_KEY).catch(() => null);
+    if (fileHandle && scene) {
+      fileHandleRef.current = fileHandle;
+      fileMetaRef.current = (await idbGet<FileMeta>(KV_STORE, FILE_META_KEY).catch(() => null)) ?? null;
+      setFileName(fileHandle.name);
+      const access = await (fileHandle as any).queryPermission({ mode: "readwrite" }).catch(() => "prompt");
+      setFileAccess(access === "granted" ? "granted" : "prompt");
+      setFileState(fileMetaRef.current?.version === getSceneVersion(scene.elements) ? "clean" : "dirty");
+    }
   }, [openProject]);
 
   useEffect(() => {
@@ -206,6 +249,8 @@ export default function App() {
     }, AUTOSAVE_MS);
   }, [doSave]);
 
+  const saveFileRef = useRef<(opts?: { as?: boolean; auto?: boolean }) => Promise<void>>(async () => {});
+
   const handleChange = useCallback(
     (elements: readonly any[], _appState: any, files: Record<string, any>) => {
       if (!boot) return;
@@ -216,6 +261,17 @@ export default function App() {
       if (version !== savedVersionRef.current) {
         setSaveState((current) => (current === "saving" ? current : "dirty"));
         scheduleSave();
+      }
+      if (fileHandleRef.current && version !== fileMetaRef.current?.version) {
+        setFileState((current) => (current === "writing" ? current : "dirty"));
+        // first unsaved change arms the timer; later edits do not push it back,
+        // so continuous editing still reaches the file every FILE_AUTOSAVE_MS
+        if (fileTimerRef.current === null) {
+          fileTimerRef.current = window.setTimeout(() => {
+            fileTimerRef.current = null;
+            void saveFileRef.current({ auto: true });
+          }, FILE_AUTOSAVE_MS);
+        }
       }
 
       // persist any image that arrived by paste / drag-drop
@@ -240,26 +296,31 @@ export default function App() {
   );
 
   useEffect(() => {
+    // Ctrl+S / Ctrl+Shift+S / Ctrl+O are taken before Excalidraw sees them:
+    // its own loader reads a whole file as one string, which large boards break.
     const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void doSave({ manual: true });
-      }
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key !== "s" && key !== "o") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (key === "o") void openFileRef.current();
+      else void saveFileRef.current({ as: event.shiftKey });
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [doSave]);
+  }, []);
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (saveState === "dirty" || saveState === "saving") {
+      if (saveState === "dirty" || saveState === "saving" || fileState === "dirty" || fileState === "writing") {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [saveState]);
+  }, [saveState, fileState]);
 
   /* ------------------------------------------------------- folder mode */
 
@@ -346,8 +407,22 @@ export default function App() {
         setImportDone(true);
         // terminate only after the project has been read back, so a worker
         // thread is never killed while it still owns pending storage work
-        await openProject(boot.store, `Imported ${file.name}`);
+        const scene = await openProject(boot.store, `Opened ${file.name}`);
         worker.terminate();
+        const handle = pendingHandleRef.current;
+        pendingHandleRef.current = null;
+        if (scene && handle) {
+          // the opened file is now where this board is saved
+          const meta = { version: getSceneVersion(scene.elements), lastModified: file.lastModified };
+          fileHandleRef.current = handle;
+          fileMetaRef.current = meta;
+          await idbPut(KV_STORE, FILE_KEY, handle).catch(() => {});
+          await idbPut(KV_STORE, FILE_META_KEY, meta).catch(() => {});
+          setFileName(handle.name);
+          setFileAccess("granted");
+          setFileState("clean");
+          setFileSavedAt(null);
+        }
       };
 
       worker.onerror = (event) => {
@@ -373,50 +448,252 @@ export default function App() {
     [runImport],
   );
 
-  /* ----------------------------------------------------------- export */
+  /* ------------------------------------------------- the single file */
 
-  const exportClassic = useCallback(async () => {
-    const api = apiRef.current;
-    if (!api || !boot) return;
-    const elements = api.getSceneElements();
-    const estimate = estimateClassicExport(
-      indexRef.current,
-      JSON.stringify(elements).length,
-    );
-    if (
-      !estimate.safe &&
-      !window.confirm(
-        `This export is about ${formatBytes(estimate.bytes)}.\n\n` +
-          "Files above ~512 MB cannot be reopened by excalidraw.com or by any " +
-          "other browser-based editor. That is a hard limit on JavaScript " +
-          "string length, not a bug.\n\nBlueprinceDraw can still reopen it. Export anyway?",
-      )
-    ) {
+  /** Has the linked file been rewritten by something else since we last wrote or read it? */
+  const fileChangedElsewhere = useCallback(async (handle: FileSystemFileHandle) => {
+    const meta = fileMetaRef.current;
+    if (!meta) return false;
+    const file = await handle.getFile();
+    return file.lastModified > meta.lastModified + 1000;
+  }, []);
+
+  /**
+   * Writes the whole board (scene + every image it uses) to one .excalidraw
+   * file, streamed one image at a time. Ctrl+S saves to the linked file,
+   * Ctrl+Shift+S (or the first save) asks where. Browsers without file access
+   * download the file instead.
+   */
+  const saveFile = useCallback(
+    async ({ as = false, auto = false }: { as?: boolean; auto?: boolean } = {}) => {
+      const api = apiRef.current;
+      if (!api || !boot) return;
+      if (fileWritingRef.current) {
+        if (!auto) say("A save to the file is already running");
+        return;
+      }
+      if (fileTimerRef.current !== null) {
+        window.clearTimeout(fileTimerRef.current);
+        fileTimerRef.current = null;
+      }
+      void doSave({ manual: !auto }); // the browser copy follows along
+
+      const elements = api.getSceneElements();
+      const version = getSceneVersion(elements);
+      const source = boardSource(boot.store, indexRef.current, elements, api.getAppState(), api.getFiles());
+      const progress = (done: number, total: number) => {
+        if (done % 10 === 0 || done === total) setFileProgress({ done, total });
+      };
+
+      if (!canPickFiles) {
+        if (auto) return;
+        setBusy({ title: "Preparing the file" });
+        try {
+          const { blob, missing } = await buildSceneBlob(source, progress);
+          downloadBlob(blob, fileName ?? "blueprince.excalidraw");
+          say(`Downloaded ${formatBytes(blob.size)}${missing.length ? `, ${missing.length} image(s) missing` : ""}`);
+        } catch (err) {
+          say(`Could not build the file: ${errorText(err)}`);
+        } finally {
+          setBusy(null);
+          setFileProgress(null);
+        }
+        return;
+      }
+
+      let handle = as ? null : fileHandleRef.current;
+      try {
+        if (handle) {
+          let access = await (handle as any).queryPermission({ mode: "readwrite" });
+          if (access !== "granted") {
+            if (auto) {
+              setFileAccess("prompt");
+              return;
+            }
+            access = await (handle as any).requestPermission({ mode: "readwrite" });
+            if (access !== "granted") {
+              say("Access to the file was declined, nothing was written");
+              return;
+            }
+            setFileAccess("granted");
+          }
+          if (await fileChangedElsewhere(handle)) {
+            if (auto) {
+              setFileState("error");
+              if (!conflictWarnedRef.current) {
+                conflictWarnedRef.current = true;
+                say(`${handle.name} was changed outside this tab: press Ctrl+S to choose what to keep`);
+              }
+              return;
+            }
+            const overwrite = window.confirm(
+              `${handle.name} was changed outside this tab since it was last saved here.\n\n` +
+                "Overwrite it with the board on screen?",
+            );
+            if (!overwrite) return;
+          }
+        } else {
+          if (auto) return;
+          handle = await (window as any).showSaveFilePicker({
+            id: "blueprincedraw-file",
+            suggestedName: fileName ?? "blueprince.excalidraw",
+            types: FILE_TYPES,
+          });
+        }
+      } catch (err: any) {
+        if (err?.name !== "AbortError") say(`Could not open the file: ${errorText(err)}`);
+        return;
+      }
+      if (!handle) return;
+
+      fileWritingRef.current = true;
+      setFileState("writing");
+      if (!auto) setBusy({ title: "Saving", detail: handle.name });
+      try {
+        const result = await writeToFileHandle(handle, source, progress);
+        conflictWarnedRef.current = false;
+        const meta = { version, lastModified: result.lastModified };
+        fileHandleRef.current = handle;
+        fileMetaRef.current = meta;
+        await idbPut(KV_STORE, FILE_KEY, handle);
+        await idbPut(KV_STORE, FILE_META_KEY, meta);
+        setFileName(handle.name);
+        setFileAccess("granted");
+        setFileSavedAt(Date.now());
+        const stillSame = getSceneVersion(apiRef.current?.getSceneElements() ?? elements) === version;
+        setFileState(stillSame ? "clean" : "dirty");
+        if (result.missing.length) {
+          say(`Saved, but ${result.missing.length} image(s) could not be found and were left out`);
+        } else if (!auto) {
+          say(
+            result.bytes > MAX_STRING_LENGTH
+              ? `Saved ${formatBytes(result.bytes)}. Above 512 MB only BlueprinceDraw can open it`
+              : `Saved ${handle.name} (${formatBytes(result.bytes)})`,
+          );
+        }
+      } catch (err) {
+        setFileState("error");
+        say(`Saving failed and the previous file is unchanged: ${errorText(err)}`);
+      } finally {
+        fileWritingRef.current = false;
+        setFileProgress(null);
+        setBusy(null);
+      }
+    },
+    [boot, doSave, fileChangedElsewhere, fileName, say],
+  );
+  saveFileRef.current = saveFile;
+
+  /** Before another file replaces the board: offer to save, or stop. Returns false to stop. */
+  const readyToReplace = useCallback(async () => {
+    if (fileState === "dirty" || fileState === "error") {
+      const save = window.confirm(
+        `The board on screen has changes that are not in ${fileName ?? "a file"} yet.\n\n` +
+          "OK saves them first. Cancel keeps the board open and does nothing.",
+      );
+      if (!save) return false;
+      await saveFile();
+    } else if (!fileName && saveState !== "idle") {
+      const proceed = window.confirm(
+        "The board on screen was never saved to a file. Open another file anyway? " +
+          "The current board stays in this browser's storage.",
+      );
+      if (!proceed) return false;
+    }
+    return true;
+  }, [fileName, fileState, saveFile, saveState]);
+
+  /** Opens a .excalidraw file of any size (streamed) and saves to it from then on. */
+  const openFile = useCallback(async () => {
+    if (!boot || !(await readyToReplace())) return;
+    if (!canPickFiles) {
+      pendingHandleRef.current = null;
+      fileInputRef.current?.click();
       return;
     }
-
-    setBusy({ title: "Building .excalidraw export" });
     try {
-      const blob = await buildClassicExport(
-        boot.store,
-        elements,
-        api.getAppState(),
-        indexRef.current,
-        (done, total) => {
-          if (done % 25 === 0) {
-            setBusy({ title: "Building .excalidraw export", detail: `Image ${done}/${total}` });
-          }
-        },
-      );
-      const stamp = new Date().toISOString().slice(0, 10);
-      downloadBlob(blob, `blueprincedraw-${stamp}.excalidraw`);
-      say(`Exported ${formatBytes(blob.size)}`);
-    } catch (err) {
-      say(`Export failed: ${errorText(err)}`);
-    } finally {
-      setBusy(null);
+      const [handle] = await (window as any).showOpenFilePicker({ id: "blueprincedraw-file", types: FILE_TYPES });
+      pendingHandleRef.current = handle;
+      runImport(await handle.getFile());
+    } catch (err: any) {
+      if (err?.name !== "AbortError") say(`Could not open the file: ${errorText(err)}`);
     }
-  }, [boot, say]);
+  }, [boot, readyToReplace, runImport, say]);
+  const openFileRef = useRef(openFile);
+  openFileRef.current = openFile;
+
+  // A .excalidraw dropped on the canvas would otherwise reach Excalidraw's own
+  // loader, which reads the whole file as one string (fails above 512 MB).
+  useEffect(() => {
+    const onDrop = (event: DragEvent) => {
+      const file = event.dataTransfer?.files?.[0];
+      if (!file || !/\.(excalidraw|json)$/i.test(file.name)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      // must be requested during the event, before any await
+      const item = event.dataTransfer?.items?.[0] as any;
+      const handlePromise: Promise<any> | null = item?.getAsFileSystemHandle?.() ?? null;
+      void (async () => {
+        if (!(await readyToReplace())) return;
+        const handle = handlePromise ? await handlePromise.catch(() => null) : null;
+        pendingHandleRef.current = handle?.kind === "file" ? handle : null;
+        runImport(file);
+      })();
+    };
+    window.addEventListener("drop", onDrop, { capture: true });
+    return () => window.removeEventListener("drop", onDrop, { capture: true });
+  }, [readyToReplace, runImport]);
+
+  /** After a browser restart the file needs one click to grant access again. */
+  const reconnectFile = useCallback(async () => {
+    const handle = fileHandleRef.current;
+    if (!handle) return;
+    const access = await (handle as any).requestPermission({ mode: "readwrite" }).catch(() => "denied");
+    if (access !== "granted") {
+      say("Access to the file was declined");
+      return;
+    }
+    setFileAccess("granted");
+    if (await fileChangedElsewhere(handle)) {
+      const load = window.confirm(
+        `${handle.name} was changed outside this browser (another computer or tab).\n\n` +
+          "Open that version? Cancel keeps the board on screen, and the next save overwrites the file.",
+      );
+      if (load) {
+        pendingHandleRef.current = handle;
+        runImport(await handle.getFile());
+        return;
+      }
+      // keep ours: accept the outside change as seen, so the next save is not blocked
+      const file = await handle.getFile();
+      fileMetaRef.current = { version: -1, lastModified: file.lastModified };
+      setFileState("dirty");
+    }
+    say(`Connected to ${handle.name}`);
+  }, [fileChangedElsewhere, runImport, say]);
+
+  // Back on the tab: pick up a newer file saved from elsewhere, if nothing here is unsaved.
+  useEffect(() => {
+    const onFocus = async () => {
+      const handle = fileHandleRef.current;
+      if (!handle || fileAccess !== "granted" || fileState !== "clean" || saveState === "dirty") return;
+      try {
+        if (await fileChangedElsewhere(handle)) {
+          if (window.confirm(`${handle.name} was updated outside this tab. Load the new version?`)) {
+            pendingHandleRef.current = handle;
+            runImport(await handle.getFile());
+          } else {
+            const file = await handle.getFile();
+            fileMetaRef.current = { ...(fileMetaRef.current as FileMeta), lastModified: file.lastModified };
+          }
+        }
+      } catch {
+        /* file moved or deleted: the next save reports it */
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [fileAccess, fileChangedElsewhere, fileState, runImport, saveState]);
 
   const prune = useCallback(async () => {
     const api = apiRef.current;
@@ -510,12 +787,29 @@ export default function App() {
               boot,
               index: indexRef.current,
               selfTest: () => import("./dev/selftest.ts").then((m) => m.folderSelfTest()),
-              buildExport: () =>
-                buildClassicExport(
-                  boot.store,
-                  instance.getSceneElements(),
-                  instance.getAppState(),
-                  indexRef.current,
+              /** save to any FileSystemFileHandle (e.g. one in OPFS) exactly like Ctrl+S does */
+              writeTo: (handle: FileSystemFileHandle) =>
+                writeToFileHandle(
+                  handle,
+                  boardSource(
+                    boot.store,
+                    indexRef.current,
+                    instance.getSceneElements(),
+                    instance.getAppState(),
+                    instance.getFiles(),
+                  ),
+                ),
+              /** open a File/Blob exactly like Open… does (streamed import) */
+              openBlob: (blob: File) => runImport(blob),
+              buildFile: () =>
+                buildSceneBlob(
+                  boardSource(
+                    boot.store,
+                    indexRef.current,
+                    instance.getSceneElements(),
+                    instance.getAppState(),
+                    instance.getFiles(),
+                  ),
                 ),
             };
           }}
@@ -524,18 +818,20 @@ export default function App() {
           name="BlueprinceDraw"
         >
           <MainMenu>
-            <MainMenu.Item onSelect={() => void doSave({ manual: true })}>
-              Save now (Ctrl+S)
+            <MainMenu.Item onSelect={() => void openFile()} shortcut="Ctrl+O">
+              Open…
             </MainMenu.Item>
-            <MainMenu.Item onSelect={() => fileInputRef.current?.click()}>
-              Import .excalidraw (any size)…
+            <MainMenu.Item onSelect={() => void saveFile()} shortcut="Ctrl+S">
+              {canPickFiles ? "Save" : "Save (download)"}
             </MainMenu.Item>
-            <MainMenu.Item onSelect={() => void exportClassic()}>
-              Export .excalidraw…
-            </MainMenu.Item>
+            {canPickFiles ? (
+              <MainMenu.Item onSelect={() => void saveFile({ as: true })} shortcut="Ctrl+Shift+S">
+                Save as…
+              </MainMenu.Item>
+            ) : null}
             <MainMenu.Separator />
             <MainMenu.Item onSelect={() => void chooseFolder()}>
-              Use a project folder…
+              Keep a working copy in a folder…
             </MainMenu.Item>
             {kind === "folder" ? (
               <MainMenu.Item onSelect={() => void useBrowserStorage()}>
@@ -573,6 +869,30 @@ export default function App() {
                   </span>
                 </>
               ) : null}
+              <span className="bpd-sep">·</span>
+              <span data-testid="file-status" title="The .excalidraw file this board is saved to">
+                📄{" "}
+                {fileState === "none"
+                  ? "not saved to a file yet (Ctrl+S)"
+                  : `${fileName}: ${
+                      fileState === "writing"
+                        ? fileProgress
+                          ? `saving ${fileProgress.done}/${fileProgress.total}`
+                          : "saving…"
+                        : fileState === "dirty"
+                          ? "unsaved changes"
+                          : fileState === "error"
+                            ? "not saved"
+                            : fileSavedAt
+                              ? `saved ${new Date(fileSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                              : "saved"
+                    }`}
+              </span>
+              {fileName && fileAccess === "prompt" ? (
+                <button className="bpd-link" onClick={() => void reconnectFile()}>
+                  Allow saving to the file
+                </button>
+              ) : null}
               {needsReconnect ? (
                 <button className="bpd-link" onClick={() => void reconnectFolder()}>
                   Reconnect folder
@@ -587,7 +907,7 @@ export default function App() {
 
       {importProgress ? (
         <ProgressOverlay
-          title={importDone ? "Import finished" : "Importing scene"}
+          title={importDone ? "File opened" : "Opening file"}
           progress={importProgress}
           note={
             importDone

@@ -12,9 +12,15 @@ Live at **https://excalidraw.hosh.it** on the owner's hosh.it box. **`docs/BOX-C
 | Env file on the box | `/srv/blueprincedraw/blueprincedraw.env` (no secret) |
 
 ## Product rules (owner decisions, do not undo)
-- **Nothing is stored server-side and there is no login.** Boards live in the visitor's browser
-  (IndexedDB) or a local folder (File System Access API); moving them = Export / Import. Do not add
-  an API, accounts, uploads or sync without the owner asking for it explicitly.
+- **Nothing is stored server-side and there is no login.** The save is ONE classic `.excalidraw`
+  file (scene + images, excalidraw.com format, any size) written and read by streaming
+  (`lib/sceneFile.ts`, `lib/jsonStream.ts`); the browser keeps a working copy (IndexedDB or a
+  folder). Do not add an API, accounts, uploads or sync without the owner asking for it explicitly.
+- **Never break existing data:** every `.excalidraw` saved before must open, every board stored
+  in IndexedDB or a folder by an earlier version must open, and opening a file never drops images
+  already stored (the index is merged, and `recoverIndex` re-lists orphaned binaries).
+- **No step may hold a whole file in memory** (V8 strings stop at 512 MB). The big-file test
+  (`BPD_BIG_FILE=1`, run in CI) must stay green.
 - Keep it simple: the server is a static file server (`server/`, Node stdlib only, GET/HEAD).
 - Never a CDN, analytics or third-party request: the CSP in `server/app.js` forbids them.
 

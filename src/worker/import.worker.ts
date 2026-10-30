@@ -113,7 +113,9 @@ self.onmessage = async (event: MessageEvent<ImportRequest>) => {
     };
 
     await store.backupScene();
-    await store.writeIndex(index);
+    // Merge, never replace: images already stored stay reachable, so the
+    // previous board (and its scene backups) keeps every picture it had.
+    await store.writeIndex({ ...(await store.readIndex()), ...index });
     await store.writeScene(doc);
 
     progress.phase = "done";

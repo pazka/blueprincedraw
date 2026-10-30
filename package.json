@@ -1,7 +1,7 @@
 {
   "name": "blueprincedraw",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "description": "Excalidraw for humongous boards: folder or server storage, streamed imports, no single-string limits",
   "license": "MIT",

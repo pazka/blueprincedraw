@@ -22,6 +22,17 @@ export const FILES_DIR = "files";
 export const BACKUP_DIR = "backups";
 
 export type StoredFile = { bytes: Uint8Array; mimeType: string };
+export type StoredFileInfo = { id: string; ext: string; mimeType: string; bytes: number };
+
+const MIME_FOR_EXT: Record<string, string> = {
+  webp: "image/webp",
+  jpg: "image/jpeg",
+  png: "image/png",
+  svg: "image/svg+xml",
+  gif: "image/gif",
+  avif: "image/avif",
+  bmp: "image/bmp",
+};
 
 export interface Store {
   readonly kind: StoreKind;
@@ -34,6 +45,8 @@ export interface Store {
   writeFile(id: string, ext: string, bytes: Uint8Array, mimeType: string, meta?: FileMeta): Promise<void>;
   deleteFile(id: string, ext: string): Promise<void>;
   stats(): Promise<StoreStats>;
+  /** Image binaries physically present (except the ids in `skip`), listed or not in the index. */
+  listStoredFiles(skip?: Set<string>): Promise<StoredFileInfo[]>;
   /** snapshot the current scene.json before it gets overwritten */
   backupScene(): Promise<void>;
   listBackups(): Promise<string[]>;
@@ -184,6 +197,23 @@ export class FolderStore implements Store {
     };
   }
 
+  async listStoredFiles(skip = new Set<string>()): Promise<StoredFileInfo[]> {
+    const out: StoredFileInfo[] = [];
+    let dir: FileSystemDirectoryHandle;
+    try {
+      dir = await this.root.getDirectoryHandle(FILES_DIR);
+    } catch {
+      return out;
+    }
+    for await (const [name, handle] of (dir as any).entries()) {
+      const m = /^(.+)\.([a-z0-9]+)$/.exec(name as string);
+      if (!m || skip.has(m[1]) || (handle as FileSystemHandle).kind !== "file" || !MIME_FOR_EXT[m[2]]) continue;
+      const file = await (handle as FileSystemFileHandle).getFile();
+      out.push({ id: m[1], ext: m[2], mimeType: MIME_FOR_EXT[m[2]], bytes: file.size });
+    }
+    return out;
+  }
+
   async backupScene() {
     const existing = await this.readScene();
     if (!existing) return;
@@ -278,6 +308,17 @@ export class BrowserStore implements Store {
       fileBytes: entries.reduce((sum, e) => sum + (e.bytes || 0), 0),
       sceneBytes: scene ? JSON.stringify(scene).length : 0,
     };
+  }
+
+  async listStoredFiles(skip = new Set<string>()): Promise<StoredFileInfo[]> {
+    const out: StoredFileInfo[] = [];
+    for (const key of await idbKeys(FILE_STORE)) {
+      if (skip.has(String(key))) continue; // keys only: listed images are never read here
+      const rec = await idbGet<StoredFile>(FILE_STORE, key);
+      if (!rec) continue;
+      out.push({ id: String(key), ext: extForMime(rec.mimeType), mimeType: rec.mimeType, bytes: rec.bytes.byteLength });
+    }
+    return out;
   }
 
   async backupScene() {

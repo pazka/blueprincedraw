@@ -31,6 +31,8 @@ jobs:
       - run: npm ci --no-audit   # frozen lockfile, no install scripts, ≥ 7-day release age (.npmrc)
       - run: npm run build
       - run: npm test
+      - name: Big board round trip (a ~600 MB file, above the browser string limit)
+        run: BPD_BIG_FILE=1 node --test test/scene-file.test.ts
       - name: No critical advisory in what ships to the browser
         run: npm audit --omit=dev --audit-level=critical
 
