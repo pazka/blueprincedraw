@@ -30,6 +30,7 @@ USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["/nodejs/bin/node", "/app/server/healthcheck.js"]
-# Node permission model: the server may read /app and nothing else (no writes, no child
-# processes, no workers, no native addons). The distroless entrypoint is /nodejs/bin/node.
-CMD ["--permission", "--allow-fs-read=/app/", "/app/server/main.js"]
+# Node permission model: the server may read /app and use the network (it must listen; Node >= 25
+# gates sockets under --permission) and nothing else (no writes, no child processes, no workers,
+# no native addons). The distroless entrypoint is /nodejs/bin/node.
+CMD ["--permission", "--allow-fs-read=/app/", "--allow-net", "/app/server/main.js"]
