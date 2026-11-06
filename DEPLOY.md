@@ -77,7 +77,7 @@ All run by **`/nodejs/bin/node /app/server/smoke.js http://127.0.0.1:8000`** ins
 ## 4. What runs
 | Item | Value |
 |---|---|
-| Image | `ghcr.io/pazka/blueprincedraw:vX.Y.Z` (distroless Node 24, uid 10001, ~50 MB) |
+| Image | `ghcr.io/pazka/blueprincedraw:vX.Y.Z` (distroless Node 26, uid 10001, ~50 MB) |
 | Upstream | container :8000 → `127.0.0.1:9132` |
 | Edge | `/root/hosh-deploy/edge/traefik/dynamic/blueprincedraw.yml` (router `blueprincedraw@file`, resolver `le`, HSTS) |
 | Volume | none (stateless) |

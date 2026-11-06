@@ -6,7 +6,7 @@
   "description": "Excalidraw for humongous boards: folder or server storage, streamed imports, no single-string limits",
   "license": "MIT",
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "scripts": {
     "dev": "vite",

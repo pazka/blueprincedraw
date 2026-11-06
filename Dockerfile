@@ -2,7 +2,7 @@
 # blueprincedraw: static Excalidraw front-end served by a ~200-line Node stdlib server.
 # Box contract rules 1–4, 12: distroless, uid 10001, read-only, no state, base images pinned by digest.
 
-FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS build
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS build
 WORKDIR /src
 # Dependencies first: frozen lockfile, no install scripts, nothing younger than 7 days (.npmrc).
 COPY package.json package-lock.json .npmrc ./
@@ -15,7 +15,7 @@ COPY test ./test
 # build = copy Excalidraw fonts/locales locally + typecheck + vite + brotli/gzip twins; then the tests
 RUN npm run build && npm test
 
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:a6c34457f6da4295807e051411c7783739c65b997a324fed14e4fa292615ae91
+FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:9b945e92c1b5463a4b75f11e8417515e4bea7355f6adfd79ec220fbbe905dda8
 ARG VERSION=dev
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="blueprincedraw" \
