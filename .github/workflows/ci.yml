@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
       - run: npm ci --no-audit   # frozen lockfile, no install scripts, ≥ 7-day release age (.npmrc)
       - run: npm run build
       - run: npm test
@@ -58,6 +58,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Node runtime guard (CVE-2026-111497, pazka/hosh-management#5): Trivy does not reliably flag
+      # the Node binary itself, so check its version directly. Distroless: node is /nodejs/bin/node.
+      - name: Node runtime is a patched LTS
+        run: bash scripts/check-node-version.sh blueprincedraw:scan /nodejs/bin/node
+
+      - name: The Node guard bites (Node 24.21.0 must be refused)
+        run: |
+          set -euo pipefail
+          docker pull -q node:24.21.0-alpine
+          if out=$(bash scripts/check-node-version.sh node:24.21.0-alpine 2>&1); then
+            echo "::error::check-node-version.sh accepted Node 24.21.0 (below the patched 24.22.1)"; exit 1
+          fi
+          echo "refused as expected: ${out//::error::/}"
+          echo "$out" | grep -q 'runs Node 24.21.0 < 24.22.1'
+
       - name: Trivy gate (CRITICAL, fixable)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \
@@ -68,6 +83,7 @@ jobs:
       - name: Container smoke (same hardening as the box) + capability checks
         run: |
           set -euo pipefail
+          trap 'docker logs smoke 2>&1 | tail -n 40; docker inspect -f "{{json .State}}" smoke' ERR
           # no --user: the image itself must run as 10001 (a Dockerfile regression must show)
           test "$(docker image inspect --format '{{.Config.User}}' blueprincedraw:scan)" = "10001:10001"
           docker run -d --name smoke --read-only --tmpfs /tmp --cap-drop ALL \

@@ -54,6 +54,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Before anything is pushed: an image whose Node is EOL or unpatched is never published
+      # (CVE-2026-111497, pazka/hosh-management#5). Distroless: node is /nodejs/bin/node.
+      - name: Node runtime is a patched LTS
+        run: bash scripts/check-node-version.sh blueprincedraw:scan /nodejs/bin/node
+
       - name: Trivy gate (CRITICAL, fixable)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \

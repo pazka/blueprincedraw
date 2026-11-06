@@ -77,7 +77,7 @@ All run by **`/nodejs/bin/node /app/server/smoke.js http://127.0.0.1:8000`** ins
 ## 4. What runs
 | Item | Value |
 |---|---|
-| Image | `ghcr.io/pazka/blueprincedraw:vX.Y.Z` (distroless Node 24, uid 10001, ~50 MB) |
+| Image | `ghcr.io/pazka/blueprincedraw:vX.Y.Z` (distroless Node 26, uid 10001, ~50 MB) |
 | Upstream | container :8000 → `127.0.0.1:9132` |
 | Edge | `/root/hosh-deploy/edge/traefik/dynamic/blueprincedraw.yml` (router `blueprincedraw@file`, resolver `le`, HSTS) |
 | Volume | none (stateless) |
@@ -89,7 +89,8 @@ All run by **`/nodejs/bin/node /app/server/smoke.js http://127.0.0.1:8000`** ins
   need accounts and would make the box hold user data; the owner wants neither. The server is a
   static file server: it answers `GET`/`HEAD` only, and the CSP's `connect-src 'self'` (plus no API
   on the server) means the page cannot send a board anywhere.
-- **Runtime least privilege:** Node's permission model, `--permission --allow-fs-read=/app/`: no file
+- **Runtime least privilege:** Node's permission model, `--permission --allow-fs-read=/app/ --allow-net`
+  (network: Node 25+ gates sockets too, and the server must listen): no file
   writes, no child processes, no workers, no native addons, no env file read. The file list is read
   once at start-up and requests are looked up in it, so traversal and dotfiles are impossible by
   construction. No outbound connection is ever made.
