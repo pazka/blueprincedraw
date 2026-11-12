@@ -68,10 +68,10 @@ jobs:
           set -euo pipefail
           docker pull -q node:24.21.0-alpine
           if out=$(bash scripts/check-node-version.sh node:24.21.0-alpine 2>&1); then
-            echo "::error::check-node-version.sh accepted Node 24.21.0 (below the patched 24.22.1)"; exit 1
+            echo "::error::check-node-version.sh accepted Node 24.21.0 (below the patched 24.22.3)"; exit 1
           fi
           echo "refused as expected: ${out//::error::/}"
-          echo "$out" | grep -q 'runs Node 24.21.0 < 24.22.1'
+          echo "$out" | grep -q 'runs Node 24.21.0 < 24.22.3'
 
       - name: Trivy gate (CRITICAL, fixable)
         run: |
