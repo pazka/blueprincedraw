@@ -44,6 +44,9 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7   # the visual harness (Node built-ins only, global WebSocket)
+        with:
+          node-version: "26"
       - uses: docker/setup-buildx-action@v4
 
       - name: Build (local, for scanning)
@@ -98,6 +101,12 @@ jobs:
           curl -fsS http://127.0.0.1:8000/healthz
           docker logs smoke | tail -n 5
           docker rm -f smoke
+
+      # Visual regression (hosh-management AGENTS.md section 3, use cases in TESTING.md): the runner's Chrome
+      # driven over the DevTools protocol, Node built-ins only; every case at 1400 / 1024 / 390 against
+      # visual/baseline/. A failing shot is printed in the log (VISUAL_PRINT_NEW=1): visual/from-log.mjs takes it back.
+      - name: Visual regression (screenshots vs baselines)
+        run: VISUAL_PRINT_NEW=1 CHROME="$(command -v google-chrome || command -v chromium)" bash visual/run.sh blueprincedraw:scan
 
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
