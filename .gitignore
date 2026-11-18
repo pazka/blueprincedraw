@@ -11,3 +11,4 @@ docker-compose.yml
 *.excalidraw
 .DS_Store
 *.tsbuildinfo
+visual/out/

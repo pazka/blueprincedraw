@@ -1,0 +1,56 @@
+# TESTING.md: blueprincedraw
+
+How this repo is tested. Rules for every agent: hub `pazka/hosh-management` `AGENTS.md`; this repo's own
+rules: `CLAUDE.md` (never break existing data, no whole file in memory, no CDN, no new dependency).
+
+## What runs in CI (`.github/workflows/ci.yml`)
+- `test`: `npm ci`, `npm run build` (typecheck + vite), `npm test` (node:test: static server, scene file
+  read/write, image streaming), the big-board round trip (`BPD_BIG_FILE=1`, ~600 MB), `npm audit` (critical).
+- `image`: build, Node runtime guard (`scripts/check-node-version.sh`) and its self-test, Trivy CRITICAL gate,
+  hardened container smoke + `server/smoke.js` capability checks (the same argv hosh-deploy runs after a
+  deploy), then the **visual regression** below.
+
+## Visual use cases
+
+Harness: `visual/` (hub AGENTS.md section 3). `bash visual/run.sh <image>` starts the image hardened as on the
+box (uid 10001, read-only, no caps, no-new-privileges) and `visual/shoot.mjs` drives the machine's Chrome over
+the DevTools protocol (Node built-ins only, no package) through every case below at **1400, 1024 and 390 px**,
+then compares each shot with `visual/baseline/<case>-<width>.png`. A page-size change, a page error or more
+than 0.1 % of differing pixels fails the job; the diff pictures go to `visual/out/diff/` and, in CI, every
+failing shot is printed in the log (`VISUAL_PRINT_NEW=1`).
+
+Determinism: every shot runs in a fresh browser profile (empty IndexedDB = a first-time visitor), with
+animations off, UTC clock, en-US locale, a fixed 900 px viewport height. The board of the B cases is a fixed
+fixture built in code in `visual/cases.mjs` (7 elements with fixed seeds, one 32x32 PNG made with
+`node:zlib`): the repo never holds a `.excalidraw` file. It is opened in the page exactly like **Open…** does
+(`window.__bpd.openBlob`, the streamed importer), so nothing is ever uploaded.
+
+| Id | State | Steps |
+|---|---|---|
+| E1-empty | first visit, empty board, browser storage | open `/`, wait for the editor and a settled status bar |
+| E2-menu-open | main menu (Open…, Save, Save as…, folder, WebP, prune, theme, background) | E1, click the menu button |
+| E3-help | Excalidraw help dialog | E1, press `?` |
+| B1-file-opened | "File opened" panel after opening a .excalidraw file (read, elements, images, payload) | E1, open the fixture, wait for the panel and for the "Opened …" toast to leave |
+| B2-board | the opened board: shapes, text, arrow, image; status "All changes saved · 1 image" | B1, Close, fit the board to the window |
+| B3-board-selected | one element selected: properties panel | B2, select `room-b` |
+| B4-board-dark | dark theme | B2, menu → Dark mode (phone: close the menu) |
+
+On a phone (390 px) Excalidraw shows its mobile layout: no footer, so **no status bar** (save state, storage,
+image count and file state are not visible there; the harness checks the stored image through the editor
+instead).
+
+Not covered: the boot error page ("Could not open the project", needs a broken IndexedDB), the folder project
+and Save / Save as (they need the File System Access picker, a user gesture), the import error panel, the
+"updated outside this tab" and overwrite confirmations (`window.confirm`), the "Reconnect folder" / "Allow
+saving to the file" links, and a humongous board (the big-file round trip is a unit test, not a picture).
+
+**Known layout issue, recorded in the baselines as it is today:** at 390 px the "File opened" panel (B1) is
+406 px wide in a 390 px window, so its right edge is cut off: `.bpd-panel` is `width: min(460px, calc(100vw -
+32px))` plus 2 × 24 px padding without `box-sizing: border-box`. Issue: pazka/hosh-management#36.
+A fix changes B1-390 on purpose.
+
+**Renewing the baselines** (only in a PR that says the visual change is wanted): the baselines are only
+meaningful for the Chrome that made them (`visual/baseline/chrome.txt`), which is the GitHub runner's. Push
+the change, let the `image` job fail, save its log, then `node visual/from-log.mjs <log> --chrome` writes the
+runner's shots into `visual/baseline/`. Look at every changed picture before committing it. Locally,
+`bash visual/run.sh blueprincedraw:local --update` does the same with your Chrome (for exploring only).
