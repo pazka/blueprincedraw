@@ -45,7 +45,8 @@ and Save / Save as (they need the File System Access picker, a user gesture), th
 saving to the file" links, and a humongous board (the big-file round trip is a unit test, not a picture).
 
 **Panels fit the window:** `.bpd-panel` (File opened, Opening file, busy, boot error) uses `box-sizing:
-border-box`, so `width: min(460px, calc(100vw - 32px))` is its outer width: 358 px with 16 px margins at 390 px.
+border-box`, so `width: min(508px, calc(100vw - 32px))` is its outer width: 508 px on desktop and laptop (as
+before), 358 px with 16 px margins at 390 px.
 B1 fails if the "File opened" panel is wider than the window (it was 406 px at 390 px before
 pazka/hosh-management#36).
 
