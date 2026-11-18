@@ -91,6 +91,7 @@ body,
 }
 
 .bpd-panel {
+  box-sizing: border-box; /* the width includes the padding: 16 px margins on a phone (hosh-management#36) */
   width: min(460px, calc(100vw - 32px));
   background: #fff;
   border-radius: 14px;
