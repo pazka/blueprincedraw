@@ -106,6 +106,9 @@ async function openBoard(p) {
   }
   // the "Opened …" toast leaves after 4 s; the panel stays until Close
   if (!(await p.waitFor("!document.querySelector('.bpd-toast')", 10000))) throw new Error("a toast stayed on screen");
+  // the panel fits in the window at every width (hosh-management#36: it was 406 px wide at 390 px)
+  const fits = await p.evaluate("(() => { const r = document.querySelector('.bpd-overlay .bpd-panel').getBoundingClientRect(); return r.left >= 0 && r.right <= document.documentElement.clientWidth ? 'ok' : `${Math.round(r.left)}..${Math.round(r.right)} in ${document.documentElement.clientWidth}`; })()");
+  if (fits !== "ok") throw new Error(`the "File opened" panel is wider than the window: ${fits}`);
 }
 
 async function board(p) {

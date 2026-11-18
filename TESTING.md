@@ -44,10 +44,11 @@ and Save / Save as (they need the File System Access picker, a user gesture), th
 "updated outside this tab" and overwrite confirmations (`window.confirm`), the "Reconnect folder" / "Allow
 saving to the file" links, and a humongous board (the big-file round trip is a unit test, not a picture).
 
-**Known layout issue, recorded in the baselines as it is today:** at 390 px the "File opened" panel (B1) is
-406 px wide in a 390 px window, so its right edge is cut off: `.bpd-panel` is `width: min(460px, calc(100vw -
-32px))` plus 2 × 24 px padding without `box-sizing: border-box`. Issue: pazka/hosh-management#36.
-A fix changes B1-390 on purpose.
+**Panels fit the window:** `.bpd-panel` (File opened, Opening file, busy, boot error) uses `box-sizing:
+border-box`, so `width: min(508px, calc(100vw - 32px))` is its outer width: 508 px on desktop and laptop (as
+before), 358 px with 16 px margins at 390 px.
+B1 fails if the "File opened" panel is wider than the window (it was 406 px at 390 px before
+pazka/hosh-management#36).
 
 **Renewing the baselines** (only in a PR that says the visual change is wanted): the baselines are only
 meaningful for the Chrome that made them (`visual/baseline/chrome.txt`), which is the GitHub runner's. Push

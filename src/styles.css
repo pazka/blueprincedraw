@@ -91,7 +91,10 @@ body,
 }
 
 .bpd-panel {
-  width: min(460px, calc(100vw - 32px));
+  /* the width includes the padding (hosh-management#36): 508 px = the old 460 px + 2 x 24 px on desktop,
+     the window minus 16 px on each side on a phone */
+  box-sizing: border-box;
+  width: min(508px, calc(100vw - 32px));
   background: #fff;
   border-radius: 14px;
   padding: 22px 24px;
