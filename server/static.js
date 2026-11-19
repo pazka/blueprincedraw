@@ -79,8 +79,8 @@ function pickEncoding(accept, variants) {
   return null;
 }
 
-/** @returns true when the request was answered */
-export function serveStatic(files, req, res, pathname) {
+/** @returns true when the request was answered. `onError` hears a file that cannot be read. */
+export function serveStatic(files, req, res, pathname, onError = () => {}) {
   const file = files.get(pathname === "/" ? "/index.html" : pathname);
   if (!file) return false;
 
@@ -106,6 +106,11 @@ export function serveStatic(files, req, res, pathname) {
     res.end();
     return true;
   }
-  createReadStream(source.path).on("error", () => res.destroy()).pipe(res);
+  createReadStream(source.path)
+    .on("error", (err) => {
+      onError(err);
+      res.destroy();
+    })
+    .pipe(res);
   return true;
 }

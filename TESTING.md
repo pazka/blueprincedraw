@@ -4,11 +4,29 @@ How this repo is tested. Rules for every agent: hub `pazka/hosh-management` `AGE
 rules: `CLAUDE.md` (never break existing data, no whole file in memory, no CDN, no new dependency).
 
 ## What runs in CI (`.github/workflows/ci.yml`)
-- `test`: `npm ci`, `npm run build` (typecheck + vite), `npm test` (node:test: static server, scene file
+- `test`: `npm ci`, `npm run build` (typecheck + vite), `npm test` (node:test: static server, log format, scene file
   read/write, image streaming), the big-board round trip (`BPD_BIG_FILE=1`, ~600 MB), `npm audit` (critical).
 - `image`: build, Node runtime guard (`scripts/check-node-version.sh`) and its self-test, Trivy CRITICAL gate,
   hardened container smoke + `server/smoke.js` capability checks (the same argv hosh-deploy runs after a
   deploy), then the **visual regression** below.
+
+## Logs (hosh-management AGENTS.md section 11)
+
+`test/log.test.js` pins the format so it cannot rot. One JSON object per line on stdout with `ts` (UTC, ms),
+`level`, `service` (`blueprincedraw`), `version` (the release tag, `APP_VERSION`), `event`, `msg`.
+- One `startup` line (`port`, `data_dir: "none"`: nothing is stored server-side, `static_files`, `log_level`,
+  `config`: the names of the variables that are set, never their values) and one `shutdown` line (`signal`,
+  `uptime_s`). A front-end that cannot be loaded gives one `startup_failed` error line and exit code 1.
+- Requests are not logged at `info` (Traefik has them): only a 5xx (`error`, event `request_failed` with `err`)
+  and an answer slower than 1 s (`warn`, `slow request`). `/healthz` is logged at `debug` only, whatever its
+  status (the container healthcheck calls it every 30 s). At `debug` every request.
+- Request lines carry `req_id` (the edge's `X-Request-Id` when it is a plain token, else a UUID; always
+  returned in the `X-Request-Id` header), `method`, `route` (a template: `/`, `/healthz`, `/assets/*`,
+  `/fonts/*`, `/locales/*`, `/:file`, `(not found)`, `(invalid)`; never the path or query string), `status`,
+  `dur_ms`, and `aborted: true` when the answer was cut.
+- A built file that cannot be read gives `static_read_failed` (`error`, `err`). In every `err` (type, message,
+  stack) the raw request URL is replaced by `<hidden>`.
+- Level: `APP_LOG_LEVEL` (the box template's name), or the standard's `LOG_LEVEL`; default `info`.
 
 ## Visual use cases
 
