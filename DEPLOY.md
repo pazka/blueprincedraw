@@ -56,7 +56,7 @@ No volume to keep: the app has no server-side data.
 |---|---|---|---|
 | `APP_IMAGE` | `ghcr.io/pazka/blueprincedraw:v1.1.0` | hosh-deploy | Release tag running (the only line hosh-deploy rewrites). |
 | `APP_BIND` | `127.0.0.1:9132` | template | Loopback port published for Traefik. |
-| `APP_LOG_LEVEL` | `info` | template | `debug`, `info`, `warn`, `error`. |
+| `APP_LOG_LEVEL` | `info` | template | `debug`, `info`, `warn`, `error` (JSON lines, TESTING.md "Logs"). |
 | `APP_PORT` | `8000` (unset) | n/a | Listening port inside the container; leave unset. |
 | `APP_STATIC_DIR` | `/app/dist` (unset) | n/a | Built front-end; leave unset. |
 
