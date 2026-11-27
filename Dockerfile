@@ -15,7 +15,7 @@ COPY test ./test
 # build = copy Excalidraw fonts/locales locally + typecheck + vite + brotli/gzip twins; then the tests
 RUN npm run build && npm test
 
-FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:1d736cf8b5716c07a245301f92717143215d248fd55771ee1936ef4b3302e531
+FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:a84242e747fbb5aaaa0180c273b6f7130ca34b3300082192ef58eea96089eb3c
 ARG VERSION=dev
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="blueprincedraw" \
