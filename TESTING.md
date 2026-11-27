@@ -5,7 +5,8 @@ rules: `CLAUDE.md` (never break existing data, no whole file in memory, no CDN, 
 
 ## What runs in CI (`.github/workflows/ci.yml`)
 - `test`: `npm ci`, `npm run build` (typecheck + vite), `npm test` (node:test: static server, log format, scene file
-  read/write, image streaming), the big-board round trip (`BPD_BIG_FILE=1`, ~600 MB), `npm audit` (critical).
+  read/write, image streaming, index safety: `recoverIndex` / `syncNewFiles` / `pruneOrphans` never drop a
+  stored image that is still listed or used), the big-board round trip (`BPD_BIG_FILE=1`, ~600 MB), `npm audit` (critical).
 - `image`: build, Node runtime guard (`scripts/check-node-version.sh`) and its self-test, Trivy CRITICAL gate,
   hardened container smoke + `server/smoke.js` capability checks (the same argv hosh-deploy runs after a
   deploy), then the **visual regression** below.
